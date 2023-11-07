@@ -1,0 +1,37 @@
+[FromQuery] string name, [FromQuery] DateTime mindate, [FromQuery] DateTime maxdate, int limit = 20, int skip = 0
+
+            if (maxdate.CompareTo(new DateTime()) == 0)
+            {
+                maxdate = DateTime.UtcNow;
+            }
+            if (mindate.CompareTo(new DateTime()) == 0)
+            {
+                mindate = maxdate - TimeSpan.FromDays(1);                
+            }
+
+            IMongoClient client = new MongoClient(AppSettings.MongoConnection);
+            IMongoDatabase db = client.GetDatabase("citefull");
+            IMongoCollection<BsonDocument> article = db.GetCollection<BsonDocument>("article");
+
+            String jsonQuery = "[{\"$match\":{\"scan_date\": {\"$gte\": new Date(\"%1\")}}}, {\"$unwind\": {path: \"$keywords\"}}, {\"$group\": {_id: \"$keywords\", \"used\": {\"$sum\": 1}}}, {\"$sort\": {\"used\": -1}}, {\"$match\": {\"used\": {\"$gt\": 1}}}]";
+            jsonQuery = jsonQuery.Replace("%1", $"{mindate:O}");
+
+            BsonArray query = MongoDB.Bson.Serialization.BsonSerializer.Deserialize<BsonArray>(jsonQuery);
+
+            query.Add(new BsonDocument(new BsonElement("$limit", limit)));
+            if (skip > 0)
+            {
+                query.Add(new BsonDocument(new BsonElement("$skip", skip)));
+            }
+            
+            PipelineDefinition<BsonDocument, BsonDocument> pipeline = PipelineDefinition<BsonDocument, BsonDocument>.Create(query.Select(val => val.AsBsonDocument));
+            IAsyncCursor<BsonDocument> results = article.Aggregate<BsonDocument>(pipeline);
+            List<string> resultslist = new List<string>();
+            foreach(BsonDocument b in results.ToList<BsonDocument>())
+            {
+                resultslist.Add(b.ToJson());
+            }
+            return new JsonResult(resultslist);
+
+
+ISODate().getTime() - 1*24*3600*1000
